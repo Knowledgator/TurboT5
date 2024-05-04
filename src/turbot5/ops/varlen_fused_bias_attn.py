@@ -80,7 +80,7 @@ def flash_attn_v2_fwd_bias(q, k, v, bias_weights,
     return o, L
 
 
-def flash_attn_v2_bwd_bias(o, do, q, k, v, bias_weights, L, 
+def flash_attn_v2_bwd_bias(o, do, q, k, v, bias_weights, L,
                            cu_seqlens_q, cu_seqlens_k,
                            max_seqlen_q, max_seqlen_k,
                            causal, sm_scale,
@@ -93,6 +93,8 @@ def flash_attn_v2_bwd_bias(o, do, q, k, v, bias_weights, L,
     Z, H, D = q.shape
 
     mid_batch, mid_start, MN = get_mid(cu_seqlens_q, B, BLOCK_M)
+    mid_batch = torch.LongTensor(mid_batch).to(q.device)
+    mid_start = torch.LongTensor(mid_start).to(q.device)
 
     has_bias = (bias_weights is not None)
     # Trick to support shape such as (1, 1, seqlen_q, seqlen_k)
@@ -122,6 +124,9 @@ def flash_attn_v2_bwd_bias(o, do, q, k, v, bias_weights, L,
         db = None
 
     nid_batch, nid_start, BN = get_mid(cu_seqlens_k, B, BLOCK_N)
+    nid_batch = torch.LongTensor(nid_batch).to(q.device)
+    nid_start = torch.LongTensor(nid_start).to(q.device)
+
     grid = (BN, H)
     with torch.cuda.device(q.device.index):
         _bwd_kv_bias_kernel[grid](
@@ -157,7 +162,7 @@ def flash_attn_v2_bwd_bias(o, do, q, k, v, bias_weights, L,
             do.stride(0), do.stride(1), do.stride(2),
             dq.stride(0), dq.stride(1), dq.stride(2),
             bw_stride,
-            B, H, M, N, P_SEQ,
+            B, H, M, N,
             BLOCK_M=BLOCK_M, BLOCK_DMODEL=D, BLOCK_N=BLOCK_N,
             CAUSAL=causal,
             HAS_BIAS = has_bias,
@@ -419,19 +424,15 @@ def _bwd_preprocess(
     q_end = tl.load(cu_seqlens_q + off_b + 1)
     lM = q_end-q_start
 
-    Out += off_z * stride_oz + off_h * stride_oh
-    DO += off_z * stride_doz + off_h * stride_doh
-    Delta += off_z * stride_dz + off_h * stride_dh
-
     # compute (Out * Dout).sum() for vector interpretation
     offs_m = tl.arange(0, BLOCK_M) + off_m
     offs_k = tl.arange(0, D_HEAD)
 
     # load
     o_ptrs = Out + (offs_m[:, None] * stride_oz + off_h * stride_oh + offs_k[None, :] * stride_ok)
-    do_ptrs = DO + (offs_m[:, None] * stride_doz + off_h * stride_doh + offs_k[None, :] * stride_dok) 
+    do_ptrs = DO + (offs_m[:, None] * stride_doz + off_h * stride_doh + offs_k[None, :] * stride_dok)
 
-    mask_m = offs_m < lM
+    mask_m = offs_m < q_end
     o = tl.load(o_ptrs, mask=mask_m[:, None]).to(tl.float32)
     do = tl.load(do_ptrs, mask=mask_m[:, None]).to(tl.float32)
 
@@ -464,7 +465,7 @@ def _bwd_kv_bias_kernel(
     MAX_DISTANCE: tl.constexpr,
 ):
     input_dtype = Q.dtype.element_ty
-  
+
     log2e: tl.constexpr = 1.4426950408889634
     # -- grid id --
     start_z = tl.program_id(0)
@@ -753,7 +754,7 @@ def _bwd_q_kernel_with_bias_calculation(
         # if not DIVISIBLE_N:
         #     valid_mask = mask_n # & mask_m[:, None]
         if CAUSAL:
-            causal_mask = (P_SEQ + offs_m[:, None]) >= (offs_n[None, :]) # (BLOCK_M, BLOCK_N)
+            causal_mask = (P_SEQ + offs_m_relative[:, None]) >= (offs_n[None, :]) # (BLOCK_M, BLOCK_N)
 
         s = tl.zeros([BLOCK_M, BLOCK_N], dtype=tl.float32)
         s += tl.dot(q, tl.trans(k)) * sm_scale
@@ -857,13 +858,13 @@ class FlashAttentionBias(torch.autograd.Function):
         dq, dk, dv, db = flash_attn_v2_bwd_bias(o, do, q, k, v, bias_weights,
                                                              L,
                                                              cu_seqlens_q, cu_seqlens_k,
-                                                             max_seqlen_q, max_seqlen_k, 
+                                                             max_seqlen_q, max_seqlen_k,
                                                              causal, sm_scale,
                                                              BLOCK_M, BLOCK_N,
                                                              NUM_BUCKETS, MAX_DISTANCE,
                                                              num_warps, num_stages)
 
-        return dq, dk, dv, db, None, None, None, None, None, None
+        return dq, dk, dv, db, None, None, None, None, None, None, None, None
 
 def flash_attention_with_fusing_bias(q, k, v, bias,
                                      cu_seqlens_q, cu_seqlens_k,
