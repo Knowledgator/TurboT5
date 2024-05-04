@@ -495,7 +495,7 @@ def _bwd_kv_bias_kernel(
     else:
         lo = 0
 
-    offs_m_init = lo + tl.arange(0, BLOCK_M)+k_start
+    offs_m_init = lo + tl.arange(0, BLOCK_M)+q_start
     offs_n = tl.arange(0, BLOCK_N) + off_n
     offs_n_relative = offs_n - k_start
     offs_m_base = tl.arange(0, BLOCK_M)
@@ -523,7 +523,8 @@ def _bwd_kv_bias_kernel(
     for start_m in range(lo, lM, BLOCK_M):
         start_m = tl.multiple_of(start_m, BLOCK_M)
         offs_m = start_m + offs_m_base
-        causal_mask = (P_SEQ + offs_m[:, None]) >= (offs_n[None, :]) # (BLOCK_M, BLOCK_N)
+        if CAUSAL:
+          causal_mask = (P_SEQ + offs_m[:, None]) >= (offs_n[None, :]) # (BLOCK_M, BLOCK_N)
 
         # load q1, k1, q2, k2, v, do on-chip
         mask_m = offs_m < lM
@@ -580,7 +581,7 @@ def _bwd_kv_bias_kernel(
         #     s = tl.where(causal_mask, s, float("-inf"))
 
         # -- recompute p ---
-        l = tl.load(L + offs_m, mask=mask_m)
+        l = tl.load(L + offs_m*H, mask=mask_m)
         p = tl.math.exp2((s - l[:, None])*log2e) # (BLOCK_M, BLOCK_N)
 
         p = tl.where(valid_mask, p, 0.0)
@@ -592,7 +593,7 @@ def _bwd_kv_bias_kernel(
         dv += tl.dot(tl.trans(p.to(do.dtype)), do) # (BLOCK_N, BLOCK_DMODEL)  # still correct
 
         # compute dp = dot(v, do)
-        delta = tl.load(D + offs_m, mask=mask_m)
+        delta = tl.load(D + offs_m*H, mask=mask_m)
         dp = tl.zeros([BLOCK_M, BLOCK_N], dtype=tl.float32)
         dp += tl.dot(do, tl.trans(v))
 
