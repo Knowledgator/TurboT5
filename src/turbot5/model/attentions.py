@@ -25,10 +25,13 @@ from .modules import T5LayerNorm
 from .utils import (_split_into_blocks, _concatenate_3_blocks, _make_global_fixed_block_ids,
                     _create_global_aggregates, _get_local_attention_mask, _make_side_relative_position_ids)
 
+from .padding import _upad_input, pad_input
+
 from ..ops.flash_attention import flash_attention_with_bias
 from ..ops.fused_bias_attention import flash_attention_with_fusing_bias
 from ..ops.naive_attention import naive_torch_attention_with_bias
 from ..ops.attention_bias import triton_compute_bias
+from ..ops.varlen_fused_bias_attn import flash_attention_with_fusing_bias_varlen
 
 class T5Attention(nn.Module):
     def __init__(self, config: T5Config, has_relative_attention_bias=False):
@@ -467,13 +470,36 @@ class T5FlashAttention(T5Attention):
                 position_bias = self.relative_attention_bias.weight
 
         attn_weights = None
-        attn_output = flash_attention_with_fusing_bias(query_states, key_states, value_states, 
+
+        if mask is None:
+            attn_output = flash_attention_with_fusing_bias(query_states, key_states, value_states, 
                                                     position_bias,
                                                     causal=self.causal, sm_scale = 1.0,
                                                     NUM_BUCKETS=self.relative_attention_num_buckets,
                                                     MAX_DISTANCE=self.relative_attention_max_distance)
+        else:
+            query_states = query_states.transpose(1, 2)
+            key_states = key_states.transpose(1, 2)
+            value_states = value_states.transpose(1, 2)
 
-        #(batch_size, seq_len, hidden_dim)
+            q, k, v, indices_q, cu_seq_lens, max_seq_lens = _upad_input(q, k, v, mask, seq_length, self.n_heads)
+
+            cu_seqlens_q, cu_seqlens_k = cu_seq_lens
+            max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
+
+            attn_output_unpad = flash_attention_with_fusing_bias_varlen(query_states, key_states, value_states, 
+                                                    position_bias,
+                                                    cu_seqlens_q = cu_seqlens_q, 
+                                                    cu_seqlens_k = cu_seqlens_k,
+                                                    max_seqlen_in_batch_q = max_seqlen_in_batch_q,
+                                                    max_seqlen_in_batch_k = max_seqlen_in_batch_k,
+                                                    causal=self.causal, sm_scale = 1.0,
+                                                    NUM_BUCKETS=self.relative_attention_num_buckets,
+                                                    MAX_DISTANCE=self.relative_attention_max_distance)
+            
+
+            attn_output = pad_input(attn_output_unpad, indices_q, batch_size, query_length)
+
         attn_output = self.o(unshape(attn_output)) 
 
         present_key_value_state = (key_states, value_states) if (self.is_decoder and use_cache) else None

@@ -11,6 +11,7 @@ python = "^3.10"
 transformers = ">=4.30.0"
 torch = ">=2.1.0"
 triton = ">=2.2.0"
+einops =">=0.7.0"
 
 [build-system]
 requires = ["poetry-core"]
