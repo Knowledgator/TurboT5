@@ -6,6 +6,8 @@
 
 You can run T5-base on **100k tokens** on a single L4 GPU (22.5 GB) with meaningful inference speed. This opens applications such as long document summarization, multimodal document processing, and even proteomics and genomics tasks.
 
+> [!warning]
+> This project is still under development and may contain some bugs. Feel free to create an issue if you detect a bug or have suggestions for improving the project.
 
 ### Supported attention mechanism
 * **Full Attention** - conventional attention mechanisms with attention bias;
