@@ -799,7 +799,7 @@ def _bwd_q_kernel_with_bias_calculation(
 
     tl.store(dq_ptrs, dq.to(input_dtype), mask=mask_m[:, None])
 
-class FlashAttentionBias(torch.autograd.Function):
+class FlashAttentionBiasVarlen(torch.autograd.Function):
     @staticmethod
     def forward(ctx, q, k, v, bias_weights, cu_seqlens_q, cu_seqlens_k,
                                     max_seqlen_q, max_seqlen_k,
@@ -867,7 +867,7 @@ class FlashAttentionBias(torch.autograd.Function):
 
         return dq, dk, dv, db, None, None, None, None, None, None, None, None
 
-def flash_attention_with_fusing_bias(q, k, v, bias,
+def flash_attention_with_fusing_bias_varlen(q, k, v, bias,
                                      cu_seqlens_q, cu_seqlens_k,
                                      max_seqlen_q, max_seqlen_k,
                                      causal=False, sm_scale=None,
@@ -885,5 +885,5 @@ def flash_attention_with_fusing_bias(q, k, v, bias,
     Returns:
         out(torch.Tensor): The output. The shape is (batch_size, nheads, seqlen_q, headdim).
     """
-    return FlashAttentionBias.apply(q, k, v, bias, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k,
+    return FlashAttentionBiasVarlen.apply(q, k, v, bias, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k,
                                                                 causal, sm_scale, NUM_BUCKETS, MAX_DISTANCE)
