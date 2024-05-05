@@ -14,7 +14,7 @@ You can run T5-base on **100k tokens** on a single L4 GPU (22.5 GB) with meaning
 * **Transient-global Attention** - tokens attend to local tokens and to n-side tokens selected from the input;
 * **Flash Attention with bias fusion** - adapted flash attention v2 with fused attention bias calculation;
 
-Flash attention supports various length inputs, and it can dynamically choose the right kernel depending on whether the input length in the batch varies. In the case if they are different `flash_attention_with_fusing_bias_varlen` kernel is calling. Otherwise, `flash_attention_with_fusing_bias_varlen` will be called.
+Flash attention supports various length inputs, and it can dynamically choose the right kernel depending on whether the input length in the batch varies. In the case if they are different `flash_attention_with_fusing_bias_varlen` kernel is calling. Otherwise, `flash_attention_with_fusing_bias` will be called.
 
 ### How to use:
 First of all, you need to install the package
