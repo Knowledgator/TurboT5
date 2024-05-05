@@ -1,9 +1,13 @@
 # TurboT5 🦾 - boost inference up to 3-5x ⚡ and run T5 model on 100k tokens 📚.  
 
+![Turbot](images/turbot.png)
+
 **TurboT5** is an optimized version of the T5 model architecture. It supports flash and linear attention mechanisms, significantly reducing memory utilization and latency. This project aims to allow the loading and running of original T5 models on tens of thousands of tokens without retraining while maintaining the same accuracy. 
 
 You can run T5-base on **100k tokens** on a single L4 GPU (22.5 GB) with meaningful inference speed. This opens applications such as long document summarization, multimodal document processing, and even proteomics and genomics tasks.
 
+> [!warning]
+> This project is still under development and may contain some bugs. Feel free to create an issue if you detect a bug or have suggestions for improving the project.
 
 ### Supported attention mechanism
 * **Full Attention** - conventional attention mechanisms with attention bias;
@@ -11,6 +15,8 @@ You can run T5-base on **100k tokens** on a single L4 GPU (22.5 GB) with meaning
 * **Block Attention** - tokens can attend to other tokens and to first n global tokens; these tokens, in the same way, attend to all other tokens;
 * **Transient-global Attention** - tokens attend to local tokens and to n-side tokens selected from the input;
 * **Flash Attention with bias fusion** - adapted flash attention v2 with fused attention bias calculation;
+
+Flash attention supports various length inputs, and it can dynamically choose the right kernel depending on whether the input length in the batch varies. In the case if they are different `flash_attention_with_fusing_bias_varlen` kernel is calling. Otherwise, `flash_attention_with_fusing_bias` will be called.
 
 ### How to use:
 First of all, you need to install the package

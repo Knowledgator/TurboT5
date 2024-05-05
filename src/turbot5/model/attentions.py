@@ -27,8 +27,11 @@ from .utils import (_split_into_blocks, _concatenate_3_blocks, _make_global_fixe
 
 from ..ops.flash_attention import flash_attention_with_bias
 from ..ops.fused_bias_attention import flash_attention_with_fusing_bias
+from ..ops.varlen_fused_bias_attn import flash_attention_with_fusing_bias_varlen
 from ..ops.naive_attention import naive_torch_attention_with_bias
 from ..ops.attention_bias import triton_compute_bias
+
+from .padding import _upad_input, pad_input
 
 class T5Attention(nn.Module):
     def __init__(self, config: T5Config, has_relative_attention_bias=False):
@@ -404,6 +407,17 @@ class T5FlashAttention(T5Attention):
         # Input is (batch_size, seq_length, dim)
         # Mask is (batch_size, key_length) (non-causal) or (batch_size, key_length, key_length)
         # past_key_value[0] is (batch_size, n_heads, q_len - 1, dim_per_head)
+        if mask is not None:
+            total_length = torch.sum(mask)
+            max_length = torch.prod(torch.tensor(mask.shape).to(mask.device))
+            if max_length==total_length:
+                varlen = False
+            else:
+                varlen = True
+        else:
+            varlen = False
+
+
         batch_size, seq_length = hidden_states.shape[:2]
 
         real_seq_length = seq_length
@@ -467,11 +481,34 @@ class T5FlashAttention(T5Attention):
                 position_bias = self.relative_attention_bias.weight
 
         attn_weights = None
-        attn_output = flash_attention_with_fusing_bias(query_states, key_states, value_states, 
+
+        if varlen:
+            attn_output = flash_attention_with_fusing_bias(query_states, key_states, value_states, 
+                                                        position_bias,
+                                                        causal=self.causal, sm_scale = 1.0,
+                                                        NUM_BUCKETS=self.relative_attention_num_buckets,
+                                                        MAX_DISTANCE=self.relative_attention_max_distance)
+        else:
+            query_states = query_states.transpose(1, 2)
+            key_states = key_states.transpose(1, 2)
+            value_states = value_states.transpose(1, 2)
+
+            query_states, key_states, value_states, indices_q, cu_seq_lens, max_seq_lens = _upad_input(query_states, key_states, value_states, 
+                                                                                                        mask, seq_length, self.n_heads)
+
+            cu_seqlens_q, cu_seqlens_k = cu_seq_lens
+            max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
+
+            attn_output_unpad = flash_attention_with_fusing_bias_varlen(query_states, key_states, value_states, 
                                                     position_bias,
+                                                    cu_seqlens_q, cu_seqlens_k,
+                                                    max_seqlen_in_batch_q, max_seqlen_in_batch_k,
                                                     causal=self.causal, sm_scale = 1.0,
                                                     NUM_BUCKETS=self.relative_attention_num_buckets,
                                                     MAX_DISTANCE=self.relative_attention_max_distance)
+            
+
+            attn_output = pad_input(attn_output_unpad, indices_q, batch_size, seq_length).transpose(1, 2)
 
         #(batch_size, seq_len, hidden_dim)
         attn_output = self.o(unshape(attn_output)) 

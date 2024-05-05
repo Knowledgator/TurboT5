@@ -167,10 +167,7 @@ class T5LayerSelfAttention(nn.Module):
 class T5LayerCrossAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
-        if config.attention_type == 'flash':
-            self.EncDecAttention = T5FlashAttention(config, has_relative_attention_bias=False, cross_attention=True)
-        else:
-            self.EncDecAttention = T5Attention(config, has_relative_attention_bias=False)
+        self.EncDecAttention = T5Attention(config, has_relative_attention_bias=False)
         self.layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon, 
                                                     use_triton = config.use_triton)
         self.dropout = nn.Dropout(config.dropout_rate)
