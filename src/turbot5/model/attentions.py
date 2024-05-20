@@ -482,7 +482,7 @@ class T5FlashAttention(T5Attention):
 
         attn_weights = None
 
-        if varlen:
+        if not varlen:
             attn_output = flash_attention_with_fusing_bias(query_states, key_states, value_states, 
                                                         position_bias,
                                                         causal=self.causal, sm_scale = 1.0,
