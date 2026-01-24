@@ -96,7 +96,7 @@ class T5Config(PretrainedConfig):
         layer_norm_epsilon=1e-6,
         initializer_factor=1.0,
         feed_forward_proj="relu",
-        attention_type='full',
+        attention_type='basic',
         sliding_window=512,
         global_block_size=32,
         is_encoder_decoder=True,

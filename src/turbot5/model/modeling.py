@@ -52,7 +52,7 @@ num_heads)`.
 logger = logging.get_logger(__name__)
 
 T5ATTENTION_TYPES = {
-    "basic": T5Attention,
+    "basic": T5Attention,  # Default attention type
     "triton-basic": T5TritonBasicAttention,
     "flash": T5FlashAttention,
     "local": T5LocalAttention,
@@ -481,13 +481,21 @@ class T5Stack(T5PreTrainedModel):
 
         # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
         # ourselves in which case we just need to make it broadcastable to all heads.
-        if self.is_decoder or self.config.attention_type == "full":
+        if self.is_decoder:
+            # Decoders always use basic T5Attention which expects extended mask
+            extended_attention_mask = self.get_extended_attention_mask(
+                attention_mask, input_shape, inputs_embeds.device
+            )
+        elif self.config.attention_type == "basic":
+            # Full and basic attention expect extended 4D mask
             extended_attention_mask = self.get_extended_attention_mask(
                 attention_mask, input_shape, inputs_embeds.device
             )
         elif self.config.attention_type == "local":
+            # Local attention uses special local attention mask
             extended_attention_mask = _get_local_attention_mask(attention_mask, self.config.sliding_window, inputs_embeds.device)
-        else:  # we need to use both local attention mask and standard extended mask for transient-global attention
+        else:
+            # All other attention types (triton-basic, flash, block, transient-global) handle the raw 2D mask internally
             extended_attention_mask = attention_mask
 
         # If a 2D or 3D attention mask is provided for the cross-attention
